@@ -27,12 +27,17 @@ func handleConnection(conn net.Conn) {
 	// 4-5 [request_api_key - 2 bytes]
 	// 6-7 [request_api_version - 2 bytes]
 	// 8-11 [correlation_id - 4 bytes]
+
+	apiVersion := binary.BigEndian.Uint16(buff[6:8])
 	correlationID := binary.BigEndian.Uint32(buff[8:12])
 
+	fmt.Println("request received with API Version: ", apiVersion)
+
 	// 8 byte response
-	response := make([]byte, 8)
-	binary.BigEndian.PutUint32(response[0:4], 0)
-	binary.BigEndian.PutUint32(response[4:8], correlationID)
+	response := make([]byte, 10)
+	binary.BigEndian.PutUint32(response[0:4], 0)             // message size
+	binary.BigEndian.PutUint32(response[4:8], correlationID) // correlation_id
+	binary.BigEndian.PutUint16(response[8:10], 35)           // error code
 
 	_, err = conn.Write(response)
 	if err != nil {
