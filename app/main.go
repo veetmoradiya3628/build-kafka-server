@@ -51,19 +51,24 @@ func handleConnection(conn net.Conn) {
 	fmt.Printf("Request received - API Key: %d, Version: %d, CorrelationID: %d\n", req.RequestAPIKey, req.RequestAPIVer, req.CorrelationID)
 
 	apiVersion := binary.BigEndian.Uint16(buff[6:8])
-	correlationID := binary.BigEndian.Uint32(buff[8:12])
-
 	fmt.Println("request received with API Version: ", apiVersion)
+
+	var errorCode int16 = 0
+	// If it's an ApiVersions request (18) and the version is not between 0 and 4
+	if req.RequestAPIKey == 18 && (req.RequestAPIVer < 0 || req.RequestAPIVer > 4) {
+		errorCode = 35 // UNSUPPORTED_VERSION error code
+	}
 
 	// response
 	var body bytes.Buffer
 
 	// header
+	correlationID := binary.BigEndian.Uint32(buff[8:12])
 	binary.Write(&body, binary.BigEndian, correlationID)
 
 	// body
 	// error code 0
-	binary.Write(&body, binary.BigEndian, int16(0))
+	binary.Write(&body, binary.BigEndian, errorCode)
 	// api_keys array length (Compact Array format: Number of elements + 1)
 	binary.Write(&body, binary.BigEndian, int8(2))
 
