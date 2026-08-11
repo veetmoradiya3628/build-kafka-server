@@ -64,7 +64,7 @@ func handleConnection(conn net.Conn) {
 	// body
 	// error code 0
 	binary.Write(&body, binary.BigEndian, int16(0))
-	// api_keys array length, for us its 2 (no of element + 1)
+	// api_keys array length (Compact Array format: Number of elements + 1)
 	binary.Write(&body, binary.BigEndian, int8(2))
 
 	// Array Element 1: API Key 18 (ApiVersions)
@@ -77,7 +77,7 @@ func handleConnection(conn net.Conn) {
 	binary.Write(&body, binary.BigEndian, int32(0))
 
 	// TAG_BUFFER for response body
-	binary.Write(&body, binary.BigEndian, int32(0))
+	binary.Write(&body, binary.BigEndian, int8(0))
 
 	// Prepend the message_size dynamically
 	// The message_size is the length of the Header + Body (excluding the 4 size bytes)
