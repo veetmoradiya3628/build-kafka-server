@@ -11,16 +11,28 @@ func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	buff := make([]byte, 1024)
-	_, err := conn.Read(buff)
+	n, err := conn.Read(buff)
 	if err != nil {
 		fmt.Println("Error reading from connection: ", err.Error())
 		return
 	}
 
+	if n < 12 {
+		fmt.Println("Received request is too short")
+		return
+	}
+
+	// Extract the correction_id from the request
+	// 0-3 [message size - 4 bytes]
+	// 4-5 [request_api_key - 2 bytes]
+	// 6-7 [request_api_version - 2 bytes]
+	// 8-11 [correlation_id - 4 bytes]
+	correlationID := binary.BigEndian.Uint32(buff[8:12])
+
 	// 8 byte response
 	response := make([]byte, 8)
 	binary.BigEndian.PutUint32(response[0:4], 0)
-	binary.BigEndian.PutUint32(response[4:8], 7)
+	binary.BigEndian.PutUint32(response[4:8], correlationID)
 
 	_, err = conn.Write(response)
 	if err != nil {
