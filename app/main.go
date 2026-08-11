@@ -1,11 +1,36 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 )
+
+type Request struct {
+	MessageSize   uint32
+	RequestAPIKey uint16
+	RequestAPIVer uint16
+	CorrelationID uint32
+}
+
+// Extract the correction_id from the request
+// 0-3 [message size - 4 bytes]
+// 4-5 [request_api_key - 2 bytes]
+// 6-7 [request_api_version - 2 bytes]
+// 8-11 [correlation_id - 4 bytes]
+func parseRequest(buff []byte) (Request, error) {
+	if len(buff) < 12 {
+		return Request{}, fmt.Errorf("buffer too short to parse request")
+	}
+	return Request{
+		MessageSize:   binary.BigEndian.Uint32(buff[0:4]),
+		RequestAPIKey: binary.BigEndian.Uint16(buff[4:6]),
+		RequestAPIVer: binary.BigEndian.Uint16(buff[6:8]),
+		CorrelationID: binary.BigEndian.Uint32(buff[8:12]),
+	}, nil
+}
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
@@ -17,32 +42,56 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	if n < 12 {
-		fmt.Println("Received request is too short")
+	req, err := parseRequest(buff[:n])
+	if err != nil {
+		fmt.Println("Error parsing request: ", err.Error())
 		return
 	}
 
-	// Extract the correction_id from the request
-	// 0-3 [message size - 4 bytes]
-	// 4-5 [request_api_key - 2 bytes]
-	// 6-7 [request_api_version - 2 bytes]
-	// 8-11 [correlation_id - 4 bytes]
+	fmt.Printf("Request received - API Key: %d, Version: %d, CorrelationID: %d\n", req.RequestAPIKey, req.RequestAPIVer, req.CorrelationID)
 
 	apiVersion := binary.BigEndian.Uint16(buff[6:8])
 	correlationID := binary.BigEndian.Uint32(buff[8:12])
 
 	fmt.Println("request received with API Version: ", apiVersion)
 
-	// 8 byte response
-	response := make([]byte, 10)
-	binary.BigEndian.PutUint32(response[0:4], 0)             // message size
-	binary.BigEndian.PutUint32(response[4:8], correlationID) // correlation_id
-	binary.BigEndian.PutUint16(response[8:10], 35)           // error code
+	// response
+	var body bytes.Buffer
 
-	_, err = conn.Write(response)
+	// header
+	binary.Write(&body, binary.BigEndian, correlationID)
+
+	// body
+	// error code 0
+	binary.Write(&body, binary.BigEndian, int16(0))
+	// api_keys array length, for us its 2 (no of element + 1)
+	binary.Write(&body, binary.BigEndian, int8(2))
+
+	// Array Element 1: API Key 18 (ApiVersions)
+	binary.Write(&body, binary.BigEndian, int16(18)) // api_key
+	binary.Write(&body, binary.BigEndian, int16(0))  // min_version
+	binary.Write(&body, binary.BigEndian, int16(4))  // max_version
+	binary.Write(&body, binary.BigEndian, int8(0))   // TAG_BUFFER for element
+
+	// throttle_time_ms
+	binary.Write(&body, binary.BigEndian, int32(0))
+
+	// TAG_BUFFER for response body
+	binary.Write(&body, binary.BigEndian, int32(0))
+
+	// Prepend the message_size dynamically
+	// The message_size is the length of the Header + Body (excluding the 4 size bytes)
+	responseBytes := body.Bytes()
+	messageSize := uint32(len(responseBytes))
+
+	var finalResponse bytes.Buffer
+	binary.Write(&finalResponse, binary.BigEndian, messageSize) // Write 4-byte size
+	finalResponse.Write(responseBytes)                          // Write the rest of the payload
+
+	// Send response
+	_, err = conn.Write(finalResponse.Bytes())
 	if err != nil {
-		fmt.Println("Error writing to connection: ", err.Error())
-		return
+		fmt.Println("Error writing to connection:", err.Error())
 	}
 }
 
