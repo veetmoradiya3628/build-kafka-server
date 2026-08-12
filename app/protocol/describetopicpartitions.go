@@ -6,8 +6,11 @@ import (
 )
 
 type DescribeTopicPartitionsResponse struct {
-	CorrelationID uint32
-	TopicName     string
+	CorrelationID  uint32
+	TopicName      string
+	ErrorCode      int16
+	TopicID        []byte
+	PartitionIndex int32
 }
 
 // ParseDescribeTopicPartitionsRequest extracts the topic name from the raw buffer
@@ -28,46 +31,58 @@ func ParseDescribeTopicPartitionsRequest(buff []byte) string {
 	return string(buff[topicNameStart:topicNameEnd])
 }
 
-// Encode converts the response into Kafka wire protocol bytes
 func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 	var body bytes.Buffer
 
-	// 1. Response Header v1
+	// Response Header v1
 	binary.Write(&body, binary.BigEndian, r.CorrelationID)
-	binary.Write(&body, binary.BigEndian, int8(0)) // TAG_BUFFER
+	body.WriteByte(0) // TAG_BUFFER
 
-	// 2. Response Body
+	// Response Body
 	binary.Write(&body, binary.BigEndian, int32(0)) // throttle_time_ms
-	binary.Write(&body, binary.BigEndian, int8(2))  // topics array length: 1 element (1 + 1)
+	body.WriteByte(2)                               // topics array length: 1 element (1 + 1)
 
 	// --- Topic Element ---
-	binary.Write(&body, binary.BigEndian, int16(3)) // error_code: 3 (UNKNOWN_TOPIC_OR_PARTITION)
+	binary.Write(&body, binary.BigEndian, r.ErrorCode)
 
-	// Compact String: length + 1, followed by the string bytes
 	body.WriteByte(byte(len(r.TopicName) + 1))
 	body.WriteString(r.TopicName)
 
-	// topic_id: 16 bytes of zeros (UUID)
-	body.Write(make([]byte, 16))
+	body.Write(r.TopicID) // Write the actual 16-byte UUID
 
-	// is_internal: false (0)
-	body.WriteByte(0)
+	body.WriteByte(0) // is_internal: false
 
-	// partitions array: empty (length 0 + 1 = 1)
-	body.WriteByte(1)
+	// --- Partitions Array ---
+	if r.ErrorCode == 0 {
+		// Topic found: 1 partition element (1 + 1 = 2)
+		body.WriteByte(2)
 
-	// topic_authorized_operations
-	binary.Write(&body, binary.BigEndian, int32(0))
+		binary.Write(&body, binary.BigEndian, int16(0)) // error_code
+		binary.Write(&body, binary.BigEndian, r.PartitionIndex)
+		binary.Write(&body, binary.BigEndian, int32(1)) // leader_id
+		binary.Write(&body, binary.BigEndian, int32(0)) // leader_epoch
 
-	// TAG_BUFFER for topic element
-	body.WriteByte(0)
+		body.WriteByte(2) // replica_nodes: 1 element
+		binary.Write(&body, binary.BigEndian, int32(1))
+
+		body.WriteByte(2) // isr_nodes: 1 element
+		binary.Write(&body, binary.BigEndian, int32(1))
+
+		body.WriteByte(1) // eligible_leader_replicas: 0 elements
+		body.WriteByte(1) // last_known_elr: 0 elements
+		body.WriteByte(1) // offline_replicas: 0 elements
+		body.WriteByte(0) // TAG_BUFFER
+	} else {
+		// Topic not found: Empty partitions array (0 + 1 = 1)
+		body.WriteByte(1)
+	}
+
+	binary.Write(&body, binary.BigEndian, int32(0)) // topic_authorized_operations
+	body.WriteByte(0)                               // TAG_BUFFER for topic element
 	// ---------------------
 
-	// next_cursor (use -1 for null, represented as 0xff in int8)
-	binary.Write(&body, binary.BigEndian, int8(-1))
-
-	// TAG_BUFFER for response body
-	body.WriteByte(0)
+	binary.Write(&body, binary.BigEndian, int8(-1)) // next_cursor
+	body.WriteByte(0)                               // TAG_BUFFER for response body
 
 	return body.Bytes()
 }

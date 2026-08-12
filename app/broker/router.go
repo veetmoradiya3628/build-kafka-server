@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/codecrafters-io/kafka-starter-go/app/protocol"
+	"github.com/codecrafters-io/kafka-starter-go/app/storage"
 )
 
 // RouteRequest is the entry point for all incoming Kafka requests
@@ -51,10 +52,23 @@ func handleApiVersions(header protocol.RequestHeader) []byte {
 
 func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte) []byte {
 	topicName := protocol.ParseDescribeTopicPartitionsRequest(rawBuff)
+	metadata, found := storage.LookupTopic(topicName)
 
 	resp := protocol.DescribeTopicPartitionsResponse{
 		CorrelationID: header.CorrelationID,
 		TopicName:     topicName,
+	}
+
+	if found {
+		// Populate with real data
+		resp.ErrorCode = 0
+		resp.TopicID = metadata.TopicID
+		resp.PartitionIndex = metadata.PartitionIndex
+	} else {
+		// Populate with default unknown data
+		resp.ErrorCode = 3
+		resp.TopicID = make([]byte, 16) // all zeros
+		resp.PartitionIndex = 0
 	}
 
 	return resp.Encode()
