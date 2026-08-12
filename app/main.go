@@ -77,9 +77,9 @@ func handleConnection(conn net.Conn) {
 			binary.Write(&body, binary.BigEndian, apiInfo.APIKey)
 			binary.Write(&body, binary.BigEndian, apiInfo.MinVersion)
 			binary.Write(&body, binary.BigEndian, apiInfo.MaxVersion)
-		}
 
-		binary.Write(&body, binary.BigEndian, int8(0)) // TAG_BUFFER for element
+			binary.Write(&body, binary.BigEndian, int8(0)) // TAG_BUFFER for element
+		}
 
 		// throttle_time_ms
 		binary.Write(&body, binary.BigEndian, int32(0))
