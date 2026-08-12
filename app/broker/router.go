@@ -52,23 +52,25 @@ func handleApiVersions(header protocol.RequestHeader) []byte {
 
 func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte) []byte {
 	topicName := protocol.ParseDescribeTopicPartitionsRequest(rawBuff)
-	metadata, found := storage.LookupTopic(topicName)
+	clusterState, err := storage.LoadAllTopics()
+	if err != nil {
+		fmt.Println("Failed to load metadata:", err)
+	}
 
 	resp := protocol.DescribeTopicPartitionsResponse{
 		CorrelationID: header.CorrelationID,
 		TopicName:     topicName,
 	}
 
-	if found {
-		// Populate with real data
+	// Check if the requested topic exists in our parsed map
+	if metadata, exists := clusterState[topicName]; exists {
 		resp.ErrorCode = 0
 		resp.TopicID = metadata.TopicID
-		resp.PartitionIndex = metadata.PartitionIndex
+		resp.Partitions = metadata.Partitions
 	} else {
-		// Populate with default unknown data
 		resp.ErrorCode = 3
 		resp.TopicID = make([]byte, 16) // all zeros
-		resp.PartitionIndex = 0
+		resp.Partitions = nil
 	}
 
 	return resp.Encode()

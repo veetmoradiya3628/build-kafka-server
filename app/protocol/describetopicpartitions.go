@@ -6,11 +6,11 @@ import (
 )
 
 type DescribeTopicPartitionsResponse struct {
-	CorrelationID  uint32
-	TopicName      string
-	ErrorCode      int16
-	TopicID        []byte
-	PartitionIndex int32
+	CorrelationID uint32
+	TopicName     string
+	ErrorCode     int16
+	TopicID       []byte
+	Partitions    []int32
 }
 
 // ParseDescribeTopicPartitionsRequest extracts the topic name from the raw buffer
@@ -48,32 +48,35 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 	body.WriteByte(byte(len(r.TopicName) + 1))
 	body.WriteString(r.TopicName)
 
-	body.Write(r.TopicID) // Write the actual 16-byte UUID
+	body.Write(r.TopicID) // 16-byte UUID
 
 	body.WriteByte(0) // is_internal: false
 
 	// --- Partitions Array ---
-	if r.ErrorCode == 0 {
-		// Topic found: 1 partition element (1 + 1 = 2)
-		body.WriteByte(2)
+	if r.ErrorCode == 0 && len(r.Partitions) > 0 {
+		// Array length: Number of partitions + 1
+		body.WriteByte(byte(len(r.Partitions) + 1))
 
-		binary.Write(&body, binary.BigEndian, int16(0)) // error_code
-		binary.Write(&body, binary.BigEndian, r.PartitionIndex)
-		binary.Write(&body, binary.BigEndian, int32(1)) // leader_id
-		binary.Write(&body, binary.BigEndian, int32(0)) // leader_epoch
+		// Loop through all discovered partitions
+		for _, partitionID := range r.Partitions {
+			binary.Write(&body, binary.BigEndian, int16(0)) // error_code
+			binary.Write(&body, binary.BigEndian, partitionID)
+			binary.Write(&body, binary.BigEndian, int32(1)) // leader_id (hardcoded for now)
+			binary.Write(&body, binary.BigEndian, int32(0)) // leader_epoch
 
-		body.WriteByte(2) // replica_nodes: 1 element
-		binary.Write(&body, binary.BigEndian, int32(1))
+			body.WriteByte(2) // replica_nodes: 1 element
+			binary.Write(&body, binary.BigEndian, int32(1))
 
-		body.WriteByte(2) // isr_nodes: 1 element
-		binary.Write(&body, binary.BigEndian, int32(1))
+			body.WriteByte(2) // isr_nodes: 1 element
+			binary.Write(&body, binary.BigEndian, int32(1))
 
-		body.WriteByte(1) // eligible_leader_replicas: 0 elements
-		body.WriteByte(1) // last_known_elr: 0 elements
-		body.WriteByte(1) // offline_replicas: 0 elements
-		body.WriteByte(0) // TAG_BUFFER
+			body.WriteByte(1) // eligible_leader_replicas: 0
+			body.WriteByte(1) // last_known_elr: 0
+			body.WriteByte(1) // offline_replicas: 0
+			body.WriteByte(0) // TAG_BUFFER
+		}
 	} else {
-		// Topic not found: Empty partitions array (0 + 1 = 1)
+		// Topic not found or no partitions: Empty partitions array (0 + 1 = 1)
 		body.WriteByte(1)
 	}
 
