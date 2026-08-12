@@ -71,13 +71,15 @@ func handleConnection(conn net.Conn) {
 		// error code 0
 		binary.Write(&body, binary.BigEndian, errorCode)
 		// api_keys array length (Compact Array format: Number of elements + 1)
-		binary.Write(&body, binary.BigEndian, int8(2))
+		binary.Write(&body, binary.BigEndian, int8(len(apiVersions)+1))
 
-		// Array Element 1: API Key 18 (ApiVersions)
-		binary.Write(&body, binary.BigEndian, int16(18)) // api_key
-		binary.Write(&body, binary.BigEndian, int16(0))  // min_version
-		binary.Write(&body, binary.BigEndian, int16(4))  // max_version
-		binary.Write(&body, binary.BigEndian, int8(0))   // TAG_BUFFER for element
+		for _, apiInfo := range apiVersions {
+			binary.Write(&body, binary.BigEndian, apiInfo.APIKey)
+			binary.Write(&body, binary.BigEndian, apiInfo.MinVersion)
+			binary.Write(&body, binary.BigEndian, apiInfo.MaxVersion)
+		}
+
+		binary.Write(&body, binary.BigEndian, int8(0)) // TAG_BUFFER for element
 
 		// throttle_time_ms
 		binary.Write(&body, binary.BigEndian, int32(0))
