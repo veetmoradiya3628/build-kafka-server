@@ -2,6 +2,7 @@ package broker
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/codecrafters-io/kafka-starter-go/app/protocol"
 	"github.com/codecrafters-io/kafka-starter-go/app/storage"
@@ -51,7 +52,12 @@ func handleApiVersions(header protocol.RequestHeader) []byte {
 }
 
 func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte) []byte {
-	topicName := protocol.ParseDescribeTopicPartitionsRequest(rawBuff)
+	// Get the array of requested topics
+	topicNames := protocol.ParseDescribeTopicPartitionsRequest(rawBuff)
+
+	// Sort the topics alphabetically to satisfy the test constraints
+	sort.Strings(topicNames)
+
 	clusterState, err := storage.LoadAllTopics()
 	if err != nil {
 		fmt.Println("Failed to load metadata:", err)
@@ -59,18 +65,27 @@ func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte
 
 	resp := protocol.DescribeTopicPartitionsResponse{
 		CorrelationID: header.CorrelationID,
-		TopicName:     topicName,
 	}
 
-	// Check if the requested topic exists in our parsed map
-	if metadata, exists := clusterState[topicName]; exists {
-		resp.ErrorCode = 0
-		resp.TopicID = metadata.TopicID
-		resp.Partitions = metadata.Partitions
-	} else {
-		resp.ErrorCode = 3
-		resp.TopicID = make([]byte, 16) // all zeros
-		resp.Partitions = nil
+	// Process each sorted requested topic and map it to a response struct
+	for _, topicName := range topicNames {
+		topicResp := protocol.TopicResponse{
+			TopicName: topicName,
+		}
+
+		// Check if the requested topic exists in our parsed map
+		if metadata, exists := clusterState[topicName]; exists {
+			topicResp.ErrorCode = 0
+			topicResp.TopicID = metadata.TopicID
+			topicResp.Partitions = metadata.Partitions
+		} else {
+			topicResp.ErrorCode = 3
+			topicResp.TopicID = make([]byte, 16) // all zeros
+			topicResp.Partitions = nil
+		}
+
+		// Append the formatted topic to the response payload
+		resp.Topics = append(resp.Topics, topicResp)
 	}
 
 	return resp.Encode()
