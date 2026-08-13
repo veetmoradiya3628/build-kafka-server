@@ -3,6 +3,7 @@ package broker
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/codecrafters-io/kafka-starter-go/app/protocol"
@@ -56,13 +57,25 @@ func handleFetch(header protocol.RequestHeader, rawBuff []byte) []byte {
 	for _, topicID := range topicIDs {
 
 		var errorCode int16 = 100 // Default to UNKNOWN_TOPIC_ID
+		var topicName string
+		var records []byte
 
 		// Iterate over metadata to check if the requested topic ID exists
-		for _, metadata := range clusterState {
+		for name, metadata := range clusterState {
 			// Compare the 16-byte UUIDs
 			if bytes.Equal(metadata.TopicID, topicID) {
 				errorCode = 0 // Topic found, No Error
+				topicName = name
 				break
+			}
+		}
+
+		// If the topic was found, attempt to read its partition log
+		if errorCode == 0 {
+			// We assume partition 0 for this stage. Adjust dynamically for multiple partitions later.
+			logPath := fmt.Sprintf("/tmp/kraft-combined-logs/%s-0/00000000000000000000.log", topicName)
+			if fileData, err := os.ReadFile(logPath); err == nil {
+				records = fileData // Populate the struct slice with the log file bytes
 			}
 		}
 
@@ -72,6 +85,7 @@ func handleFetch(header protocol.RequestHeader, rawBuff []byte) []byte {
 				{
 					PartitionIndex: 0,
 					ErrorCode:      errorCode, // UNKNOWN_TOPIC_ID Error Code
+					Records:        records
 				},
 			},
 		}

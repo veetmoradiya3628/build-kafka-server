@@ -18,32 +18,30 @@ type FetchTopicResponse struct {
 type FetchPartitionResponse struct {
 	PartitionIndex int32
 	ErrorCode      int16
+	Records        []byte // Added to hold the log file contents
 }
 
 // ParseFetchRequest extracts the topic IDs from the raw buffer safely
 func ParseFetchRequest(buff []byte) [][]byte {
+	// ... (Keep existing implementation exactly the same)
 	if len(buff) < 14 {
 		return nil
 	}
 
-	// Client ID length is a standard 16-bit int at offset 12 in the request header
 	clientIDLen := int16(binary.BigEndian.Uint16(buff[12:14]))
 	bodyOffset := 14
 
-	// Handle valid vs nullable client IDs
 	if clientIDLen > 0 {
 		bodyOffset += int(clientIDLen)
 	}
-	bodyOffset++ // Request Header v2 ends with a TAG_BUFFER
+	bodyOffset++
 
-	// Skip MaxWait (4), MinBytes (4), MaxBytes (4), IsolationLevel (1), SessionID (4), SessionEpoch (4) = 21 bytes
 	ptr := bodyOffset + 21
 
 	if ptr >= len(buff) {
 		return nil
 	}
 
-	// Read the number of elements in the compact array (length - 1)
 	numTopics := int(buff[ptr]) - 1
 	ptr++
 
@@ -54,7 +52,6 @@ func ParseFetchRequest(buff []byte) [][]byte {
 			break
 		}
 
-		// Extract 16-byte Topic UUID
 		topicID := buff[ptr : ptr+16]
 		topicIDs = append(topicIDs, topicID)
 		ptr += 16
@@ -65,13 +62,11 @@ func ParseFetchRequest(buff []byte) [][]byte {
 		numPartitions := int(buff[ptr]) - 1
 		ptr++
 
-		// Skip over the partitions block since we only need the topic ID for this stage
 		for j := 0; j < numPartitions; j++ {
-			// partition (4) + currentLeaderEpoch (4) + fetchOffset (8) + lastFetchedEpoch (4) + logStartOffset (8) + partitionMaxBytes (4) = 32 bytes
 			ptr += 32
-			ptr++ // TAG_BUFFER for partition
+			ptr++
 		}
-		ptr++ // TAG_BUFFER for topic
+		ptr++
 	}
 
 	return topicIDs
@@ -81,26 +76,19 @@ func ParseFetchRequest(buff []byte) [][]byte {
 func (r *FetchResponse) Encode() []byte {
 	var body bytes.Buffer
 
-	// Response Header v1
 	binary.Write(&body, binary.BigEndian, r.CorrelationID)
 	body.WriteByte(0) // TAG_BUFFER
 
-	// Fetch Response Body (v16)
 	binary.Write(&body, binary.BigEndian, int32(0)) // throttle_time_ms: 0
 	binary.Write(&body, binary.BigEndian, int16(0)) // error_code: 0 (No Error)
 	binary.Write(&body, binary.BigEndian, int32(0)) // session_id: 0
 
-	// Responses array (Compact Array format: Number of elements + 1)
 	body.WriteByte(byte(len(r.Responses) + 1))
 
-	// Loop over Topics
 	for _, topic := range r.Responses {
-		body.Write(topic.TopicID) // Echo back the exact 16-byte TopicID
-
-		// Partitions array length
+		body.Write(topic.TopicID)
 		body.WriteByte(byte(len(topic.Partitions) + 1))
 
-		// Loop over Partitions
 		for _, partition := range topic.Partitions {
 			binary.Write(&body, binary.BigEndian, partition.PartitionIndex)
 			binary.Write(&body, binary.BigEndian, partition.ErrorCode)
@@ -111,8 +99,17 @@ func (r *FetchResponse) Encode() []byte {
 			body.WriteByte(1)                               // aborted_transactions (Compact Array: 0 elements + 1)
 			binary.Write(&body, binary.BigEndian, int32(0)) // preferred_read_replica
 
-			// COMPACT_RECORDS (Null record batch is represented by a length of 0)
-			body.WriteByte(0)
+			// --- COMPACT_RECORDS ENCODING ---
+			if len(partition.Records) == 0 {
+				body.WriteByte(0) // Null record batch length
+			} else {
+				// Kafka compact records length is Uvarint(length + 1)
+				varintBuf := make([]byte, binary.MaxVarintLen64)
+				n := binary.PutUvarint(varintBuf, uint64(len(partition.Records)+1))
+				body.Write(varintBuf[:n])
+				// Write the raw bytes straight from disk
+				body.Write(partition.Records)
+			}
 
 			body.WriteByte(0) // TAG_BUFFER for partition
 		}
@@ -120,8 +117,7 @@ func (r *FetchResponse) Encode() []byte {
 		body.WriteByte(0) // TAG_BUFFER for topic
 	}
 
-	// TAG_BUFFER for response body
-	body.WriteByte(0)
+	body.WriteByte(0) // TAG_BUFFER for response body
 
 	return body.Bytes()
 }
