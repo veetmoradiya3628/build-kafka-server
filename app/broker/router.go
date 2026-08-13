@@ -85,7 +85,7 @@ func handleFetch(header protocol.RequestHeader, rawBuff []byte) []byte {
 				{
 					PartitionIndex: 0,
 					ErrorCode:      errorCode, // UNKNOWN_TOPIC_ID Error Code
-					Records:        records
+					Records:        records,
 				},
 			},
 		}
