@@ -12,6 +12,7 @@ type APIInfo struct {
 }
 
 var SupportedAPIs = []APIInfo{
+	{APIKey: 1, MinVersion: 0, MaxVersion: 16}, // Fetch API
 	{APIKey: 18, MinVersion: 0, MaxVersion: 4}, // APIVersions
 	{APIKey: 75, MinVersion: 0, MaxVersion: 0}, // DescribeTopicPartitions
 }
