@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 
@@ -42,18 +43,35 @@ func handleFetch(header protocol.RequestHeader, rawBuff []byte) []byte {
 	// Extract topic IDs directly from the request buffer
 	topicIDs := protocol.ParseFetchRequest(rawBuff)
 
+	clusterState, err := storage.LoadAllTopics()
+	if err != nil {
+		fmt.Println("Failed to load metadata:", err)
+	}
+
 	resp := protocol.FetchResponse{
 		CorrelationID: header.CorrelationID,
 	}
 
 	// For now, any topic we encounter is treated as unknown
 	for _, topicID := range topicIDs {
+
+		var errorCode int16 = 100 // Default to UNKNOWN_TOPIC_ID
+
+		// Iterate over metadata to check if the requested topic ID exists
+		for _, metadata := range clusterState {
+			// Compare the 16-byte UUIDs
+			if bytes.Equal(metadata.TopicID, topicID) {
+				errorCode = 0 // Topic found, No Error
+				break
+			}
+		}
+
 		topicResp := protocol.FetchTopicResponse{
 			TopicID: topicID,
 			Partitions: []protocol.FetchPartitionResponse{
 				{
 					PartitionIndex: 0,
-					ErrorCode:      100, // UNKNOWN_TOPIC_ID Error Code
+					ErrorCode:      errorCode, // UNKNOWN_TOPIC_ID Error Code
 				},
 			},
 		}
