@@ -22,7 +22,7 @@ func RouteRequest(buff []byte, n int) ([]byte, error) {
 
 	switch header.RequestAPIKey {
 	case 1: // Fetch API
-		responseBytes = handleFetch(header)
+		responseBytes = handleFetch(header, buff[:n])
 	case 18: // ApiVersions
 		responseBytes = handleApiVersions(header)
 	case 75: // DescribeTopicPartitions
@@ -38,9 +38,27 @@ func RouteRequest(buff []byte, n int) ([]byte, error) {
 }
 
 // Add the handler for Fetch requests
-func handleFetch(header protocol.RequestHeader) []byte {
+func handleFetch(header protocol.RequestHeader, rawBuff []byte) []byte {
+	// Extract topic IDs directly from the request buffer
+	topicIDs := protocol.ParseFetchRequest(rawBuff)
+
 	resp := protocol.FetchResponse{
 		CorrelationID: header.CorrelationID,
+	}
+
+	// For now, any topic we encounter is treated as unknown
+	for _, topicID := range topicIDs {
+		topicResp := protocol.FetchTopicResponse{
+			TopicID: topicID,
+			Partitions: []protocol.FetchPartitionResponse{
+				{
+					PartitionIndex: 0,
+					ErrorCode:      100, // UNKNOWN_TOPIC_ID Error Code
+				},
+			},
+		}
+
+		resp.Responses = append(resp.Responses, topicResp)
 	}
 
 	return resp.Encode()
