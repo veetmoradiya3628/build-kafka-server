@@ -21,6 +21,8 @@ func RouteRequest(buff []byte, n int) ([]byte, error) {
 	var responseBytes []byte
 
 	switch header.RequestAPIKey {
+	case 1: // Fetch API
+		responseBytes = handleFetch(header)
 	case 18: // ApiVersions
 		responseBytes = handleApiVersions(header)
 	case 75: // DescribeTopicPartitions
@@ -33,6 +35,15 @@ func RouteRequest(buff []byte, n int) ([]byte, error) {
 
 	// Dynamically prepend the message size to the final response
 	return protocol.WrapWithMessageSize(responseBytes), nil
+}
+
+// Add the handler for Fetch requests
+func handleFetch(header protocol.RequestHeader) []byte {
+	resp := protocol.FetchResponse{
+		CorrelationID: header.CorrelationID,
+	}
+
+	return resp.Encode()
 }
 
 func handleApiVersions(header protocol.RequestHeader) []byte {
