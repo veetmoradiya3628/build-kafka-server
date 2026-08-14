@@ -158,6 +158,12 @@ func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte
 func handleProduce(header protocol.RequestHeader, rawBuff []byte) []byte {
 	reqTopics := protocol.ParseProduceRequest(rawBuff)
 
+	// Load cluster metadata to verify topic and partition existence
+	clusterState, err := storage.LoadAllTopics()
+	if err != nil {
+		fmt.Println("Failed to load metadata:", err)
+	}
+
 	resp := protocol.ProduceResponse{
 		CorrelationID: header.CorrelationID,
 	}
@@ -167,13 +173,41 @@ func handleProduce(header protocol.RequestHeader, rawBuff []byte) []byte {
 			Name: reqTopic.Name,
 		}
 
+		// Check if the topic exists in our metadata state
+		metadata, topicExists := clusterState[reqTopic.Name]
+
 		for _, reqPartIndex := range reqTopic.Partitions {
+			// Default to invalid state parameters
+			var errorCode int16 = 3 // UNKNOWN_TOPIC_OR_PARTITION
+			var baseOffset int64 = -1
+			var logAppendTime int64 = -1
+			var logStartOffset int64 = -1
+
+			if topicExists {
+				// Check if the requested partition exists within this topic
+				partitionExists := false
+				for _, p := range metadata.Partitions {
+					if p == reqPartIndex {
+						partitionExists = true
+						break
+					}
+				}
+
+				// If both topic and partition are valid, set success parameters
+				if partitionExists {
+					errorCode = 0  // NO_ERROR
+					baseOffset = 0 // First record in the partition
+					logStartOffset = 0
+					// logAppendTime remains -1 (signifying latest timestamp)
+				}
+			}
+
 			respTopic.Partitions = append(respTopic.Partitions, protocol.ProduceResponsePartition{
 				Index:          reqPartIndex,
-				ErrorCode:      3, // UNKNOWN_TOPIC_OR_PARTITION
-				BaseOffset:     -1,
-				LogAppendTime:  -1,
-				LogStartOffset: -1,
+				ErrorCode:      errorCode,
+				BaseOffset:     baseOffset,
+				LogAppendTime:  logAppendTime,
+				LogStartOffset: logStartOffset,
 			})
 		}
 
