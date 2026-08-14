@@ -23,6 +23,8 @@ func RouteRequest(buff []byte, n int) ([]byte, error) {
 	var responseBytes []byte
 
 	switch header.RequestAPIKey {
+	case 0: // Produce API
+		responseBytes = handleProduce(header, buff[:n])
 	case 1: // Fetch API
 		responseBytes = handleFetch(header, buff[:n])
 	case 18: // ApiVersions
@@ -147,6 +149,35 @@ func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte
 
 		// Append the formatted topic to the response payload
 		resp.Topics = append(resp.Topics, topicResp)
+	}
+
+	return resp.Encode()
+}
+
+// Add this function anywhere in your router.go file
+func handleProduce(header protocol.RequestHeader, rawBuff []byte) []byte {
+	reqTopics := protocol.ParseProduceRequest(rawBuff)
+
+	resp := protocol.ProduceResponse{
+		CorrelationID: header.CorrelationID,
+	}
+
+	for _, reqTopic := range reqTopics {
+		respTopic := protocol.ProduceResponseTopic{
+			Name: reqTopic.Name,
+		}
+
+		for _, reqPartIndex := range reqTopic.Partitions {
+			respTopic.Partitions = append(respTopic.Partitions, protocol.ProduceResponsePartition{
+				Index:          reqPartIndex,
+				ErrorCode:      3, // UNKNOWN_TOPIC_OR_PARTITION
+				BaseOffset:     -1,
+				LogAppendTime:  -1,
+				LogStartOffset: -1,
+			})
+		}
+
+		resp.Topics = append(resp.Topics, respTopic)
 	}
 
 	return resp.Encode()
