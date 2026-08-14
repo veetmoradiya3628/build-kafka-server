@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bytes"
 	"encoding/binary"
 )
 
@@ -48,7 +47,7 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 	if ptr >= len(buff) {
 		return nil
 	}
-	_, n := binary.Uvarint(buff[ptr:]) // Safely skip TAG_BUFFER for Request Header v2
+	_, n := binary.Uvarint(buff[ptr:]) // TAG_BUFFER for Request Header v2
 	ptr += n
 
 	if ptr >= len(buff) {
@@ -102,21 +101,27 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 
 		var partitions []ProduceRequestPartition
 		for j := 0; j < int(partsCount-1); j++ {
-			if ptr+8 > len(buff) {
+			if ptr+4 > len(buff) {
 				return topics
 			}
 			// Partition Index
 			partIndex := int32(binary.BigEndian.Uint32(buff[ptr : ptr+4]))
 			ptr += 4
 
-			recordsLen := int32(binary.BigEndian.Uint32(buff[ptr : ptr+4]))
-			ptr += 4
+			if ptr >= len(buff) {
+				return topics
+			}
+
+			// FIX: COMPACT_RECORDS uses Uvarint(length + 1)
+			recordsLenPlusOne, n := binary.Uvarint(buff[ptr:])
+			ptr += n
 
 			var records []byte
-			if recordsLen > 0 {
-				if ptr+int(recordsLen) <= len(buff) {
-					records = buff[ptr : ptr+int(recordsLen)]
-					ptr += int(recordsLen)
+			if recordsLenPlusOne > 0 {
+				recordsLen := int(recordsLenPlusOne - 1)
+				if ptr+recordsLen <= len(buff) {
+					records = buff[ptr : ptr+recordsLen]
+					ptr += recordsLen
 				} else {
 					// Buffer is truncated, prevent panic
 					records = buff[ptr:]
@@ -125,7 +130,7 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 			}
 
 			if ptr < len(buff) {
-				_, n = binary.Uvarint(buff[ptr:]) // Safely skip TAG_BUFFER for partition
+				_, n = binary.Uvarint(buff[ptr:]) // TAG_BUFFER for partition
 				ptr += n
 			}
 
@@ -136,7 +141,7 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 		}
 
 		if ptr < len(buff) {
-			_, n = binary.Uvarint(buff[ptr:]) // Safely skip TAG_BUFFER for topic
+			_, n = binary.Uvarint(buff[ptr:]) // TAG_BUFFER for topic
 			ptr += n
 		}
 
@@ -147,49 +152,4 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 	}
 
 	return topics
-}
-
-// Encode converts the ProduceResponse struct into the Kafka Produce Response v11 wire protocol bytes
-func (r *ProduceResponse) Encode() []byte {
-	var body bytes.Buffer
-
-	// Response Header v1
-	binary.Write(&body, binary.BigEndian, r.CorrelationID)
-	body.WriteByte(0) // TAG_BUFFER
-
-	// Responses Array (Compact Array format)
-	body.WriteByte(byte(len(r.Topics) + 1))
-
-	for _, topic := range r.Topics {
-		// Topic Name (Compact String)
-		body.WriteByte(byte(len(topic.Name) + 1))
-		body.WriteString(topic.Name)
-
-		// Partitions Array (Compact Array format)
-		body.WriteByte(byte(len(topic.Partitions) + 1))
-		for _, part := range topic.Partitions {
-			binary.Write(&body, binary.BigEndian, part.Index)
-			binary.Write(&body, binary.BigEndian, part.ErrorCode)
-			binary.Write(&body, binary.BigEndian, part.BaseOffset)
-			binary.Write(&body, binary.BigEndian, part.LogAppendTime)
-			binary.Write(&body, binary.BigEndian, part.LogStartOffset)
-
-			// record_errors (Compact Array): 0 elements -> length 1
-			body.WriteByte(1)
-
-			// error_message (Compact Nullable String): null -> length 0
-			body.WriteByte(0)
-
-			body.WriteByte(0) // TAG_BUFFER for partition
-		}
-		body.WriteByte(0) // TAG_BUFFER for topic
-	}
-
-	// throttle_time_ms
-	binary.Write(&body, binary.BigEndian, int32(0))
-
-	// TAG_BUFFER for response body
-	body.WriteByte(0)
-
-	return body.Bytes()
 }
