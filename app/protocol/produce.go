@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/binary"
 )
 
@@ -152,4 +153,49 @@ func ParseProduceRequest(buff []byte) []ProduceRequestTopic {
 	}
 
 	return topics
+}
+
+// Encode converts the ProduceResponse struct into the Kafka Produce Response v11 wire protocol bytes
+func (r *ProduceResponse) Encode() []byte {
+	var body bytes.Buffer
+
+	// Response Header v1
+	binary.Write(&body, binary.BigEndian, r.CorrelationID)
+	body.WriteByte(0) // TAG_BUFFER
+
+	// Responses Array (Compact Array format)
+	body.WriteByte(byte(len(r.Topics) + 1))
+
+	for _, topic := range r.Topics {
+		// Topic Name (Compact String)
+		body.WriteByte(byte(len(topic.Name) + 1))
+		body.WriteString(topic.Name)
+
+		// Partitions Array (Compact Array format)
+		body.WriteByte(byte(len(topic.Partitions) + 1))
+		for _, part := range topic.Partitions {
+			binary.Write(&body, binary.BigEndian, part.Index)
+			binary.Write(&body, binary.BigEndian, part.ErrorCode)
+			binary.Write(&body, binary.BigEndian, part.BaseOffset)
+			binary.Write(&body, binary.BigEndian, part.LogAppendTime)
+			binary.Write(&body, binary.BigEndian, part.LogStartOffset)
+
+			// record_errors (Compact Array): 0 elements -> length 1
+			body.WriteByte(1)
+
+			// error_message (Compact Nullable String): null -> length 0
+			body.WriteByte(0)
+
+			body.WriteByte(0) // TAG_BUFFER for partition
+		}
+		body.WriteByte(0) // TAG_BUFFER for topic
+	}
+
+	// throttle_time_ms
+	binary.Write(&body, binary.BigEndian, int32(0))
+
+	// TAG_BUFFER for response body
+	body.WriteByte(0)
+
+	return body.Bytes()
 }
