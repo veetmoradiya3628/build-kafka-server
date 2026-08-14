@@ -154,7 +154,6 @@ func handleDescribeTopicPartitions(header protocol.RequestHeader, rawBuff []byte
 	return resp.Encode()
 }
 
-// Add this function anywhere in your router.go file
 func handleProduce(header protocol.RequestHeader, rawBuff []byte) []byte {
 	reqTopics := protocol.ParseProduceRequest(rawBuff)
 
@@ -176,34 +175,42 @@ func handleProduce(header protocol.RequestHeader, rawBuff []byte) []byte {
 		// Check if the topic exists in our metadata state
 		metadata, topicExists := clusterState[reqTopic.Name]
 
-		for _, reqPartIndex := range reqTopic.Partitions {
-			// Default to invalid state parameters
+		for _, reqPart := range reqTopic.Partitions {
 			var errorCode int16 = 3 // UNKNOWN_TOPIC_OR_PARTITION
 			var baseOffset int64 = -1
 			var logAppendTime int64 = -1
 			var logStartOffset int64 = -1
 
 			if topicExists {
-				// Check if the requested partition exists within this topic
 				partitionExists := false
 				for _, p := range metadata.Partitions {
-					if p == reqPartIndex {
+					if p == reqPart.Index {
 						partitionExists = true
 						break
 					}
 				}
 
-				// If both topic and partition are valid, set success parameters
 				if partitionExists {
-					errorCode = 0  // NO_ERROR
-					baseOffset = 0 // First record in the partition
+					errorCode = 0
+					baseOffset = 0
 					logStartOffset = 0
-					// logAppendTime remains -1 (signifying latest timestamp)
+					dirPath := fmt.Sprintf("/tmp/kraft-combined-logs/%s-%d", reqTopic.Name, reqPart.Index)
+					os.MkdirAll(dirPath, 0755) // Ensure the partition directory exists
+
+					logPath := fmt.Sprintf("%s/00000000000000000000.log", dirPath)
+					// Append directly to the file, creating it if it doesn't exist
+					f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					if err == nil {
+						f.Write(reqPart.Records)
+						f.Close()
+					} else {
+						fmt.Println("Error writing to partition log:", err)
+					}
 				}
 			}
 
 			respTopic.Partitions = append(respTopic.Partitions, protocol.ProduceResponsePartition{
-				Index:          reqPartIndex,
+				Index:          reqPart.Index,
 				ErrorCode:      errorCode,
 				BaseOffset:     baseOffset,
 				LogAppendTime:  logAppendTime,
